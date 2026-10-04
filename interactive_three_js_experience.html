@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="fr" class="h-full w-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cosmic Lattice - Interactive Three.js Experience</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Phosphor Icons for UI controls -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <!-- Three.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- OrbitControls CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: 'Inter', sans-serif;
+      user-select: none;
+    }
+    /* Smooth custom scrollbars for control panels */
+    ::-webkit-scrollbar {
+      width: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.4);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.3);
+      border-radius: 9999px;
+    }
+    /* Glassmorphism accent styling */
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+    }
+    .glass-button {
+      background: rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .glass-button:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.25);
+      transform: translateY(-1px);
+    }
+    .glass-button:active {
+      transform: translateY(0);
+    }
+  </style>
+</head>
+
+<body class="h-full w-full overflow-hidden bg-slate-950 text-slate-100 antialiased relative">
+  <!-- 3D Canvas element where Three.js will paint -->
+  <canvas id="webgl-canvas" class="fixed inset-0 w-full h-full block z-0 outline-none"></canvas>
+
+  <!-- Interactive HUD / Header Overlay -->
+  <header class="fixed top-5 left-5 z-20 pointer-events-none">
+    <div class="glass-panel pointer-events-auto rounded-2xl px-5 py-4 flex items-center space-x-3.5">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-indigo-500 to-fuchsia-500 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+        <i class="ph-bold ph-cube text-xl text-white"></i>
+      </div>
+      <div>
+        <h1 class="text-sm font-semibold tracking-wide text-white uppercase flex items-center gap-1.5">
+          Cosmic Morph 
+          <span class="text-[10px] bg-cyan-500/20 text-cyan-300 font-medium px-2 py-0.5 rounded-full border border-cyan-500/30">Three.js</span>
+        </h1>
+        <p class="text-xs text-slate-400 font-normal">Géométrie procédurale & Shaders</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- Floating Stats / Status indicator -->
+  <aside class="fixed bottom-5 left-5 z-20 pointer-events-none hidden sm:block">
+    <div class="glass-panel pointer-events-auto rounded-xl px-4 py-2.5 flex items-center space-x-4 text-xs text-slate-400">
+      <div class="flex items-center space-x-1.5">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="fps-counter" class="font-mono text-slate-200 font-medium">60 FPS</span>
+      </div>
+      <span class="text-slate-600">|</span>
+      <div>Poly: <span id="poly-counter" class="text-slate-200 font-mono">18.4k</span></div>
+      <span class="text-slate-600">|</span>
+      <div>Particules: <span id="particle-counter" class="text-slate-200 font-mono">2,500</span></div>
+    </div>
+  </aside>
+
+  <!-- Glassmorphism Main Settings Drawer -->
+  <main class="fixed top-5 right-5 bottom-5 z-20 w-80 max-w-[calc(100vw-2.5rem)] pointer-events-none flex flex-col justify-start">
+    <div class="glass-panel pointer-events-auto rounded-2xl p-5 flex flex-col max-h-full overflow-y-auto space-y-5">
+      <!-- Section: Presets -->
+      <section class="space-y-2.5">
+        <div class="flex items-center justify-between">
+          <label class="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+            <i class="ph ph-palette text-sm text-cyan-400"></i> Palettes de Couleurs
+          </label>
+        </div>
+        <div class="grid grid-cols-4 gap-2" id="preset-container">
+          <!-- Populated by JS -->
+        </div>
+      </section>
+
+      <!-- Section: Geometry Configuration -->
+      <section class="space-y-3 pt-2 border-t border-slate-700/50">
+        <div class="flex items-center justify-between">
+          <label class="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+            <i class="ph ph-shapes text-sm text-indigo-400"></i> Forme Géométrique
+          </label>
+        </div>
+        <div class="grid grid-cols-3 gap-1.5 text-xs" id="geometry-selector">
+          <button data-shape="torusKnot" class="shape-btn glass-button rounded-lg py-2 font-medium text-slate-200 bg-white/20 border-cyan-400/50">Torus Knot</button>
+          <button data-shape="icosahedron" class="shape-btn glass-button rounded-lg py-2 font-medium text-slate-400">Sphère Neo</button>
+          <button data-shape="mobius" class="shape-btn glass-button rounded-lg py-2 font-medium text-slate-400">Ondulation</button>
+        </div>
+      </section>
+
+      <!-- Section: Motion & Deformation Sliders -->
+      <section class="space-y-3.5 pt-2 border-t border-slate-700/50">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+          <i class="ph ph-faders text-sm text-fuchsia-400"></i> Paramètres Dynamiques
+        </label>
+        
+        <!-- Speed Slider -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs text-slate-300">
+            <span>Vitesse de rotation</span>
+            <span id="speed-val" class="font-mono text-cyan-400">1.0x</span>
+          </div>
+          <input type="range" id="param-speed" min="0.1" max="3" step="0.1" value="1.0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+        </div>
+
+        <!-- Pulse / Morphing Amplitude -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs text-slate-300">
+            <span>Déformation organique</span>
+            <span id="morph-val" class="font-mono text-cyan-400">0.35</span>
+          </div>
+          <input type="range" id="param-morph" min="0" max="1" step="0.05" value="0.35" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+        </div>
+
+        <!-- Particle Dispersion -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between text-xs text-slate-300">
+            <span>Densité des étoiles</span>
+            <span id="particle-density-val" class="font-mono text-cyan-400">2500</span>
+          </div>
+          <input type="range" id="param-particles" min="500" max="5000" step="500" value="2500" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+        </div>
+      </section>
+
+      <!-- Section: Toggles (Wireframe, Glow, Auto-Camera) -->
+      <section class="space-y-2 pt-2 border-t border-slate-700/50">
+        <label class="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+          <i class="ph ph-sliders-horizontal text-sm text-emerald-400"></i> Modes d'affichage
+        </label>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <button id="toggle-wireframe" class="glass-button rounded-xl py-2 px-3 flex items-center justify-center space-x-2 text-slate-300">
+            <i class="ph ph-grid-four text-base text-cyan-400"></i>
+            <span>Wireframe</span>
+          </button>
+          <button id="toggle-bloom" class="glass-button rounded-xl py-2 px-3 flex items-center justify-center space-x-2 text-slate-300">
+            <i class="ph ph-sparkle text-base text-amber-400"></i>
+            <span>Halo Lueur</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Camera Reset / Actions -->
+      <section class="pt-2 border-t border-slate-700/50 flex space-x-2">
+        <button id="btn-reset-cam" class="flex-1 glass-button rounded-xl py-2.5 px-3 flex items-center justify-center space-x-1.5 text-xs text-slate-300 font-medium hover:text-white">
+          <i class="ph ph-arrows-clockwise text-sm"></i>
+          <span>Recentrer caméra</span>
+        </button>
+      </section>
+    </div>
+  </main>
+
+  <!-- Help Floating Pill -->
+  <div class="fixed bottom-5 right-5 z-10 hidden md:flex items-center space-x-2 text-[11px] text-slate-400 bg-slate-900/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700/40">
+    <i class="ph ph-cursor-click text-cyan-400"></i>
+    <span>Clic gauche + glisser pour orbiter • Molette pour zoomer</span>
+  </div>
+
+  <script>
+    /**
+     * THREE.JS MASTER ENGINE SETUP
+     * Comprehensive single-file 3D implementation featuring procedural vertex displacement,
+     * particle networks, multi-point dynamic lighting, and orbital viewport synchronisation.
+     */
+
+    // Configuration State
+    const CONFIG = {
+      speed: 1.0,
+      morphAmplitude: 0.35,
+      wireframe: false,
+      glow: true,
+      currentShape: 'torusKnot',
+      particleCount: 2500,
+      activePalette: 0,
+      palettes: [
+        { name: "Cyberpunk", primary: 0x06b6d4, secondary: 0xd946ef, bg: 0x030712, light1: 0x00f0ff, light2: 0xff0077 },
+        { name: "Emerald Sun", primary: 0x10b981, secondary: 0xf59e0b, bg: 0x021510, light1: 0x34d399, light2: 0xfbbf24 },
+        { name: "Deep Amethyst", primary: 0x8b5cf6, secondary: 0x3b82f6, bg: 0x07051a, light1: 0xa855f7, light2: 0x38bdf8 },
+        { name: "Solar Flare", primary: 0xef4444, secondary: 0xf97316, bg: 0x140404, light1: 0xf87171, light2: 0xfdba74 }
+      ]
+    };
+
+    // Global Three.js References
+    let scene, camera, renderer, controls;
+    let mainMesh, wireframeMesh, pointCloud, starGeometry;
+    let pointLight1, pointLight2, ambientLight;
+    let originalPositions = null;
+    let clock = new THREE.Clock();
+
+    // DOM References
+    const canvas = document.getElementById('webgl-canvas');
+    const speedInput = document.getElementById('param-speed');
+    const morphInput = document.getElementById('param-morph');
+    const particleInput = document.getElementById('param-particles');
+    const speedVal = document.getElementById('speed-val');
+    const morphVal = document.getElementById('morph-val');
+    const particleDensityVal = document.getElementById('particle-density-val');
+    const wireframeBtn = document.getElementById('toggle-wireframe');
+    const bloomBtn = document.getElementById('toggle-bloom');
+    const resetCamBtn = document.getElementById('btn-reset-cam');
+    const presetContainer = document.getElementById('preset-container');
+    const shapeButtons = document.querySelectorAll('.shape-btn');
+    const fpsDisplay = document.getElementById('fps-counter');
+
+    function initEngine() {
+      // 1. Scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(CONFIG.palettes[CONFIG.activePalette].bg);
+      scene.fog = new THREE.FogExp2(CONFIG.palettes[CONFIG.activePalette].bg, 0.045);
+
+      // 2. Camera
+      camera = new THREE.PerspectiveCamera(
+        45, 
+        window.innerWidth / window.innerHeight, 
+        0.1, 
+        1000
+      );
+      camera.position.set(0, 0, 7.5);
+
+      // 3. WebGL Renderer
+      renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        antialias: true,
+        powerPreference: "high-performance",
+        alpha: false
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.15;
+
+      // 4. OrbitControls
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.rotateSpeed = 0.8;
+      controls.minDistance = 3.0;
+      controls.maxDistance = 18.0;
+
+      // 5. Build Scene components
+      setupLighting();
+      buildGeometries();
+      buildParticleField(CONFIG.particleCount);
+      buildPaletteUI();
+      bindEventListeners();
+
+      // Window resizing
+      window.addEventListener('resize', onWindowResize, false);
+    }
+
+    function setupLighting() {
+      const palette = CONFIG.palettes[CONFIG.activePalette];
+
+      ambientLight = new THREE.AmbientLight(0xffffff, 0.35);
+      scene.add(ambientLight);
+
+      // Orbiting Point Light 1
+      pointLight1 = new THREE.PointLight(palette.light1, 4.5, 25);
+      pointLight1.position.set(5, 4, 3);
+      scene.add(pointLight1);
+
+      // Orbiting Point Light 2 (Complementary accent)
+      pointLight2 = new THREE.PointLight(palette.light2, 4.0, 25);
+      pointLight2.position.set(-5, -4, -3);
+      scene.add(pointLight2);
+
+      // Subtle center backlight for rim highlights
+      const backLight = new THREE.DirectionalLight(0xffffff, 0.4);
+      backLight.position.set(0, 5, -8);
+      scene.add(backLight);
+    }
+
+    function createGeometryForType(type) {
+      switch (type) {
+        case 'icosahedron':
+          return new THREE.IcosahedronGeometry(1.9, 28);
+        case 'mobius':
+          return new THREE.TorusGeometry(1.8, 0.65, 36, 120);
+        case 'torusKnot':
+        default:
+          return new THREE.TorusKnotGeometry(1.4, 0.45, 140, 32, 2, 3);
+      }
+    }
+
+    function buildGeometries() {
+      // Clean up previous instances if existing
+      if (mainMesh) scene.remove(mainMesh);
+      if (wireframeMesh) scene.remove(wireframeMesh);
+
+      const palette = CONFIG.palettes[CONFIG.activePalette];
+      const geometry = createGeometryForType(CONFIG.currentShape);
+
+      // Cache original vertex positions for organic vertex wave displacement
+      const posAttr = geometry.attributes.position;
+      originalPositions = new Float32Array(posAttr.array.length);
+      originalPositions.set(posAttr.array);
+
+      // Smooth modern physical-based material
+      const material = new THREE.MeshPhysicalMaterial({
+        color: palette.primary,
+        emissive: palette.primary,
+        emissiveIntensity: 0.15,
+        roughness: 0.22,
+        metalness: 0.85,
+        clearcoat: 0.9,
+        clearcoatRoughness: 0.15,
+        reflectivity: 0.9,
+        wireframe: CONFIG.wireframe,
+        flatShading: false
+      });
+
+      mainMesh = new THREE.Mesh(geometry, material);
+      scene.add(mainMesh);
+
+      // Wireframe overlay mesh for holographic accent effect
+      const wireframeMat = new THREE.MeshBasicMaterial({
+        color: palette.secondary,
+        wireframe: true,
+        transparent: true,
+        opacity: CONFIG.glow ? 0.35 : 0.08
+      });
+
+      wireframeMesh = new THREE.Mesh(geometry.clone(), wireframeMat);
+      wireframeMesh.scale.set(1.015, 1.015, 1.015);
+      scene.add(wireframeMesh);
+
+      // Update HUD stats
+      const polyTotal = geometry.index ? geometry.index.count / 3 : posAttr.count / 3;
+      document.getElementById('poly-counter').innerText = `${(polyTotal / 1000).toFixed(1)}k`;
+    }
+
+    function buildParticleField(count) {
+      if (pointCloud) scene.remove(pointCloud);
+
+      starGeometry = new THREE.BufferGeometry();
+      const coords = new Float32Array(count * 3);
+      const scales = new Float32Array(count);
+
+      const radius = 22;
+      for (let i = 0; i < count * 3; i += 3) {
+        // Distribute points in a spherical shell
+        const u = Math.random();
+        const v = Math.random();
+        const theta = u * 2.0 * Math.PI;
+        const phi = Math.acos(2.0 * v - 1.0);
+        const r = Math.cbrt(Math.random()) * radius + 3.0;
+
+        coords[i] = r * Math.sin(phi) * Math.cos(theta);
+        coords[i + 1] = r * Math.sin(phi) * Math.sin(theta);
+        coords[i + 2] = r * Math.cos(phi);
+
+        scales[i / 3] = Math.random() * 0.04 + 0.015;
+      }
+
+      starGeometry.setAttribute('position', new THREE.BufferAttribute(coords, 3));
+
+      // Circular glow particle texture
+      const canvasTex = document.createElement('canvas');
+      canvasTex.width = 32;
+      canvasTex.height = 32;
+      const ctx = canvasTex.getContext('2d');
+      const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+      gradient.addColorStop(0, 'rgba(255,255,255,1)');
+      gradient.addColorStop(0.3, 'rgba(100,200,255,0.7)');
+      gradient.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 32, 32);
+
+      const particleTexture = new THREE.CanvasTexture(canvasTex);
+
+      const starMaterial = new THREE.PointsMaterial({
+        color: CONFIG.palettes[CONFIG.activePalette].secondary,
+        size: 0.16,
+        map: particleTexture,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+
+      pointCloud = new THREE.Points(starGeometry, starMaterial);
+      scene.add(pointCloud);
+      document.getElementById('particle-counter').innerText = count.toLocaleString();
+    }
+
+    function buildPaletteUI() {
+      presetContainer.innerHTML = '';
+      CONFIG.palettes.forEach((palette, idx) => {
+        const btn = document.createElement('button');
+        btn.className = `h-9 rounded-xl flex items-center justify-center p-1 transition-all border ${
+          idx === CONFIG.activePalette ? 'border-cyan-400 ring-2 ring-cyan-400/30' : 'border-white/10 hover:border-white/30'
+        }`;
+        btn.title = palette.name;
+        
+        // Gradient representation pill
+        const pill = document.createElement('div');
+        pill.className = 'w-full h-full rounded-lg shadow-inner';
+        const hex1 = '#' + palette.primary.toString(16).padStart(6, '0');
+        const hex2 = '#' + palette.secondary.toString(16).padStart(6, '0');
+        pill.style.background = `linear-gradient(135deg, ${hex1}, ${hex2})`;
+
+        btn.appendChild(pill);
+        btn.addEventListener('click', () => applyPalette(idx));
+        presetContainer.appendChild(btn);
+      });
+    }
+
+    function applyPalette(index) {
+      CONFIG.activePalette = index;
+      const palette = CONFIG.palettes[index];
+
+      // Update scene backdrop & fog
+      scene.background.setHex(palette.bg);
+      scene.fog.color.setHex(palette.bg);
+
+      // Update Lights
+      pointLight1.color.setHex(palette.light1);
+      pointLight2.color.setHex(palette.light2);
+
+      // Update Materials
+      if (mainMesh) {
+        mainMesh.material.color.setHex(palette.primary);
+        mainMesh.material.emissive.setHex(palette.primary);
+      }
+      if (wireframeMesh) {
+        wireframeMesh.material.color.setHex(palette.secondary);
+      }
+      if (pointCloud) {
+        pointCloud.material.color.setHex(palette.secondary);
+      }
+
+      buildPaletteUI();
+    }
+
+    function bindEventListeners() {
+      // Speed slider
+      speedInput.addEventListener('input', (e) => {
+        CONFIG.speed = parseFloat(e.target.value);
+        speedVal.innerText = `${CONFIG.speed.toFixed(1)}x`;
+      });
+
+      // Morphing slider
+      morphInput.addEventListener('input', (e) => {
+        CONFIG.morphAmplitude = parseFloat(e.target.value);
+        morphVal.innerText = CONFIG.morphAmplitude.toFixed(2);
+      });
+
+      // Particle density slider
+      particleInput.addEventListener('input', (e) => {
+        const val = parseInt(e.target.value, 10);
+        CONFIG.particleCount = val;
+        particleDensityVal.innerText = val;
+        buildParticleField(val);
+      });
+
+      // Geometry selection buttons
+      shapeButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          shapeButtons.forEach(b => {
+            b.classList.remove('bg-white/20', 'border-cyan-400/50', 'text-slate-200');
+            b.classList.add('text-slate-400');
+          });
+          btn.classList.add('bg-white/20', 'border-cyan-400/50', 'text-slate-200');
+          btn.classList.remove('text-slate-400');
+
+          CONFIG.currentShape = btn.dataset.shape;
+          buildGeometries();
+        });
+      });
+
+      // Wireframe Toggle
+      wireframeBtn.addEventListener('click', () => {
+        CONFIG.wireframe = !CONFIG.wireframe;
+        mainMesh.material.wireframe = CONFIG.wireframe;
+        wireframeBtn.classList.toggle('bg-cyan-500/20', CONFIG.wireframe);
+        wireframeBtn.classList.toggle('border-cyan-500/40', CONFIG.wireframe);
+      });
+
+      // Glow / Hologram Toggle
+      bloomBtn.addEventListener('click', () => {
+        CONFIG.glow = !CONFIG.glow;
+        wireframeMesh.material.opacity = CONFIG.glow ? 0.35 : 0.05;
+        mainMesh.material.emissiveIntensity = CONFIG.glow ? 0.25 : 0.05;
+        bloomBtn.classList.toggle('bg-amber-500/20', CONFIG.glow);
+        bloomBtn.classList.toggle('border-amber-500/40', CONFIG.glow);
+      });
+
+      // Camera Reset
+      resetCamBtn.addEventListener('click', () => {
+        controls.reset();
+        camera.position.set(0, 0, 7.5);
+      });
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    }
+
+    function updateOrganicMorph(elapsedTime) {
+      if (!mainMesh || !originalPositions) return;
+
+      const posAttr = mainMesh.geometry.attributes.position;
+      const count = posAttr.count;
+      const amp = CONFIG.morphAmplitude * 0.45;
+      const time = elapsedTime * (1.2 * CONFIG.speed);
+
+      // Perform harmonic 3D displacement waves across the surface
+      for (let i = 0; i < count; i++) {
+        const i3 = i * 3;
+        const ox = originalPositions[i3];
+        const oy = originalPositions[i3 + 1];
+        const oz = originalPositions[i3 + 2];
+
+        // Complex 3-axis sine wave turbulence
+        const wave = Math.sin(ox * 2.2 + time) * 
+                     Math.cos(oy * 2.5 + time * 0.9) * 
+                     Math.sin(oz * 2.0 + time * 0.7);
+
+        const displacement = 1.0 + wave * amp;
+
+        posAttr.array[i3] = ox * displacement;
+        posAttr.array[i3 + 1] = oy * displacement;
+        posAttr.array[i3 + 2] = oz * displacement;
+      }
+
+      posAttr.needsUpdate = true;
+      mainMesh.geometry.computeVertexNormals();
+
+      // Mirror the deformation onto the glowing wireframe layer
+      const wirePos = wireframeMesh.geometry.attributes.position;
+      wirePos.array.set(posAttr.array);
+      wirePos.needsUpdate = true;
+    }
+
+    let frameCounter = 0;
+    let lastFpsUpdate = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const delta = clock.getDelta();
+      const elapsed = clock.getElapsedTime();
+
+      // Update Controls for smooth damping
+      controls.update();
+
+      // Dynamic Meshes Continuous Rotation
+      const rotSpeed = 0.3 * CONFIG.speed;
+      if (mainMesh) {
+        mainMesh.rotation.y += 0.008 * CONFIG.speed;
+        mainMesh.rotation.x = Math.sin(elapsed * 0.2 * CONFIG.speed) * 0.25;
+        wireframeMesh.rotation.copy(mainMesh.rotation);
+
+        // Apply mathematical organoid deformation
+        if (CONFIG.morphAmplitude > 0) {
+          updateOrganicMorph(elapsed);
+        }
+      }
+
+      // Orbital point lights rotation to cast flowing highlights
+      const lightRadius = 6.2;
+      const lightTime = elapsed * 0.65 * CONFIG.speed;
+      pointLight1.position.x = Math.sin(lightTime) * lightRadius;
+      pointLight1.position.z = Math.cos(lightTime) * lightRadius;
+      pointLight1.position.y = Math.cos(lightTime * 0.8) * 3.5;
+
+      pointLight2.position.x = -Math.sin(lightTime * 0.9) * lightRadius;
+      pointLight2.position.z = -Math.cos(lightTime * 0.9) * lightRadius;
+      pointLight2.position.y = -Math.sin(lightTime * 0.7) * 3.5;
+
+      // Slowly rotate particle field
+      if (pointCloud) {
+        pointCloud.rotation.y -= 0.0007 * CONFIG.speed;
+        pointCloud.rotation.x -= 0.0003 * CONFIG.speed;
+      }
+
+      // Render the current scene snapshot
+      renderer.render(scene, camera);
+
+      // FPS Counter calculation
+      frameCounter++;
+      if (elapsed - lastFpsUpdate >= 0.5) {
+        const fps = Math.round(frameCounter / (elapsed - lastFpsUpdate));
+        fpsDisplay.innerText = `${fps} FPS`;
+        frameCounter = 0;
+        lastFpsUpdate = elapsed;
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      initEngine();
+      animate();
+    });
+  </script>
+</body>
+</html>

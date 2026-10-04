@@ -2,163 +2,185 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
+  <title>Lierre AR - WebAR Autonome</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Test WebXR AR - Three.js</title>
   <style>
     body {
       margin: 0;
       overflow: hidden;
-      font-family: sans-serif;
       background-color: #000;
+      font-family: sans-serif;
     }
-    #info {
+    #camera-video {
       position: absolute;
-      top: 10px;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: 1;
+    }
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 2;
+      pointer-events: none;
+    }
+    #overlay-ui {
+      position: absolute;
+      bottom: 24px;
       left: 0;
       width: 100%;
       text-align: center;
-      color: white;
-      font-size: 13px;
-      z-index: 10;
-      pointer-events: none;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+      z-index: 3;
+    }
+    .btn {
+      background: rgba(18, 18, 18, 0.85);
+      border: 1px solid #4CAF50;
+      color: #fff;
+      padding: 14px 28px;
+      font-size: 16px;
+      border-radius: 28px;
+      cursor: pointer;
+    }
+    #info-text {
+      color: #fff;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+      font-size: 14px;
+      margin-top: 10px;
     }
   </style>
-
-  <!-- Import maps pour charger Three.js sans bundler -->
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-      }
-    }
-  </script>
+  <!-- Three.js via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
-  <div id="info">Vise une surface plane, puis tape sur l'écran</div>
+  <video id="camera-video" autoplay playsinline muted></video>
+  <div id="canvas-container"></div>
 
-  <script type="module">
-    import * as THREE from 'three';
-    import { ARButton } from 'three/addons/webxr/ARButton.js';
+  <div id="overlay-ui">
+    <button id="start-btn" class="btn">DÉMARRER LA CAMÉRA</button>
+    <div id="info-text">Touche l'écran pour faire germer du lierre</div>
+  </div>
 
-    let container;
-    let camera, scene, renderer;
-    let controller;
-    let reticle;
-    let hitTestSource = null;
-    let hitTestSourceRequested = false;
+  <script>
+    const video = document.getElementById('camera-video');
+    const startBtn = document.getElementById('start-btn');
+    const infoText = document.getElementById('info-text');
 
-    init();
-    animate();
+    let scene, camera, renderer;
+    let plants = [];
 
-    function init() {
-      container = document.createElement('div');
-      document.body.appendChild(container);
-
+    function initThree() {
       scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
+      camera.position.z = 1.5;
 
-      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-      // Éclairage réaliste pour la scène AR
-      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-      light.position.set(0.5, 1, 0.25);
+      const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
       scene.add(light);
 
-      // Moteur de rendu WebGL avec WebXR activé
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.xr.enabled = true;
-      container.appendChild(renderer.domElement);
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
 
-      // Bouton officiel ARButton avec demande de session hit-test
-      document.body.appendChild(ARButton.createButton(renderer, {
-        requiredFeatures: ['hit-test']
-      }));
-
-      // Réticule circulaire qui se calque sur les murs et le sol
-      reticle = new THREE.Mesh(
-        new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2),
-        new THREE.MeshBasicMaterial({ color: 0x00ff88 })
-      );
-      reticle.matrixAutoUpdate = false;
-      reticle.visible = false;
-      scene.add(reticle);
-
-      // Interaction : tap tactile sur l'écran
-      controller = renderer.xr.getController(0);
-      controller.addEventListener('select', onSelect);
-      scene.add(controller);
-
-      window.addEventListener('resize', onWindowResize);
+      window.addEventListener('click', onTouch);
+      animate();
     }
 
-    function onSelect() {
-      if (reticle.visible) {
-        // Crée un cube ou une géométrie à l'endroit exact du réticule
-        const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-        const material = new THREE.MeshStandardMaterial({ 
-          color: 0x22c55e, 
-          roughness: 0.3 
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false
         });
-        const mesh = new THREE.Mesh(geometry, material);
-        
-        // Copie la position et l'orientation de la surface détectée
-        reticle.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
-        scene.add(mesh);
+        video.srcObject = stream;
+        await video.play();
+        startBtn.style.display = 'none';
+        initThree();
+      } catch (err) {
+        alert("Impossible d'accéder à la caméra : " + err.message);
       }
     }
 
-    function onWindowResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+    // Gestion de l'orientation du smartphone
+    window.addEventListener('deviceorientation', (event) => {
+      if (!camera) return;
+      const alpha = event.alpha ? THREE.MathUtils.degToRad(event.alpha) : 0;
+      const beta = event.beta ? THREE.MathUtils.degToRad(event.beta) : 0;
+      const gamma = event.gamma ? THREE.MathUtils.degToRad(event.gamma) : 0;
+      camera.rotation.set(beta - Math.PI / 2, gamma, alpha, 'ZXY');
+    });
+
+    // Structure de croissance procédurale de tige
+    function spawnVine(x, y, z) {
+      const vineGroup = new THREE.Group();
+      vineGroup.position.set(x, y, z);
+
+      const stemMaterial = new THREE.MeshStandardMaterial({ color: 0x2e7d32, roughness: 0.6 });
+      const leafMaterial = new THREE.MeshStandardMaterial({ color: 0x66bb6a, side: THREE.DoubleSide });
+
+      const vine = {
+        group: vineGroup,
+        currentHeight: 0,
+        maxHeight: 1.2 + Math.random() * 0.8,
+        step: 0,
+        grow() {
+          if (this.currentHeight >= this.maxHeight) return;
+
+          const segHeight = 0.05;
+          const geom = new THREE.CylinderGeometry(0.008, 0.012, segHeight, 6);
+          const seg = new THREE.Mesh(geom, stemMaterial);
+
+          seg.position.y = this.currentHeight + segHeight / 2;
+          seg.rotation.z = (Math.sin(this.step) * 0.15);
+          this.group.add(seg);
+
+          // Ajout d'une feuille tous les 2 segments
+          if (this.step % 2 === 0) {
+            const leafGeom = new THREE.CircleGeometry(0.035, 5);
+            const leaf = new THREE.Mesh(leafGeom, leafMaterial);
+            leaf.position.set(
+              Math.sin(this.step) * 0.02,
+              this.currentHeight + segHeight,
+              0.01
+            );
+            leaf.rotation.y = (this.step % 4 === 0) ? 0.4 : -0.4;
+            this.group.add(leaf);
+          }
+
+          this.currentHeight += segHeight * 0.85;
+          this.step++;
+        }
+      };
+
+      scene.add(vineGroup);
+      plants.push(vine);
+    }
+
+    function onTouch(e) {
+      if (startBtn.style.display !== 'none') return;
+      // Positionne un germe dans l'espace face à la caméra
+      const normX = (e.clientX / window.innerWidth) * 2 - 1;
+      const normY = -(e.clientY / window.innerHeight) * 2 + 1;
+      spawnVine(normX * 0.5, normY * 0.5 - 0.2, 0.2);
     }
 
     function animate() {
-      renderer.setAnimationLoop(render);
-    }
-
-    function render(timestamp, frame) {
-      if (frame) {
-        const referenceSpace = renderer.xr.getReferenceSpace();
-        const session = renderer.xr.getSession();
-
-        // 1. Initialisation de la source de raycasting AR (hit-test)
-        if (hitTestSourceRequested === false) {
-          session.requestReferenceSpace('viewer').then((viewerSpace) => {
-            session.requestHitTestSource({ space: viewerSpace }).then((source) => {
-              hitTestSource = source;
-            });
-          });
-
-          session.addEventListener('end', () => {
-            hitTestSourceRequested = false;
-            hitTestSource = null;
-          });
-
-          hitTestSourceRequested = true;
-        }
-
-        // 2. Détection en temps réel de la surface visée
-        if (hitTestSource) {
-          const hitTestResults = frame.getHitTestResults(hitTestSource);
-
-          if (hitTestResults.length > 0) {
-            const hit = hitTestResults[0];
-            const pose = hit.getPose(referenceSpace);
-
-            reticle.visible = true;
-            reticle.matrix.fromArray(pose.transform.matrix);
-          } else {
-            reticle.visible = false;
-          }
-        }
-      }
-
+      requestAnimationFrame(animate);
+      plants.forEach(p => p.grow());
       renderer.render(scene, camera);
     }
+
+    startBtn.addEventListener('click', startCamera);
   </script>
 </body>
 </html>
